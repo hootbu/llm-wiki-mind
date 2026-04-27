@@ -16,12 +16,28 @@ Tetiklendiğinde yapılacaklar:
 
 ## 2. Değişiklik aralığını belirle
 
-Kullanıcıya sor (AskUserQuestion) — hangi aralığı sync'leyeceğiz:
+**Varsayılan: otomatik tespit. Soru sorma.** Vault'un `log.md` dosyasından en son ingest edilen commit'i bul ve oradan `HEAD`'e kadar atılmamış olan tüm commit'leri sync'le.
 
-- **Son commit** (HEAD~1..HEAD): hızlı, tek değişiklik.
-- **Belirli commit** (kullanıcı hash verir).
-- **Belirli tarih aralığı** (örn. "son 7 gün").
-- **Aktif branch'in divergence'ı** (main..HEAD): bir PR bütünü.
+```bash
+LAST_HASH=$(grep -oE 'commit `[a-f0-9]+\.\.[a-f0-9]+`' "$VAULT_PATH/log.md" \
+  | tail -1 \
+  | sed -E 's/commit `[a-f0-9]+\.\.([a-f0-9]+)`/\1/')
+
+cd "$PROJECT_PATH"
+NEW_COUNT=$(git rev-list --count "$LAST_HASH..HEAD" 2>/dev/null || echo "?")
+```
+
+Sonra duruma göre:
+
+- **Yeni commit var (`NEW_COUNT > 0`)** — Aralık otomatik olarak `$LAST_HASH..HEAD` belirlendi. Kullanıcıya kısa bir teyit yaz (örn. "Vault `<hash>`'e kadar güncel, oradan HEAD'e kadar N commit ingest edeceğim.") ve **direkt §3'e geç**. Soru sorma.
+- **Yeni commit yok (`NEW_COUNT == 0`)** — "Vault zaten en son commit'e kadar güncel (`<hash>`). Sync'lenecek bir şey yok." mesajıyla durdur.
+- **`log.md` parse edilemezse** (ilk ingest, format değişikliği vb.) — geri çekil ve AskUserQuestion ile sor:
+  - **Son commit** (HEAD~1..HEAD): tek değişiklik.
+  - **Belirli commit / aralık** (kullanıcı hash verir).
+  - **Aktif branch'in divergence'ı** (main..HEAD): PR bütünü.
+  - **Belirli tarih aralığı** (örn. "son 7 gün").
+
+**Override:** Kullanıcı komutu çağırırken explicit bir aralık (örn. `/vault-sync HEAD~3..HEAD`) veya doğal dilde belirtirse ("son commit", "PR bütünü"), otomatik tespit yerine kullanıcının seçimi kullanılır.
 
 ## 3. Değişikliği topla
 
