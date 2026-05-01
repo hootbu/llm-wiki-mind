@@ -22,19 +22,23 @@ Sen kaynak bulursun, Claude bookkeeping'i yapar: özetler, çapraz-referansları
 
 ---
 
+![Demo vault overview](docs/screenshots/obsidian-graph-and-overview.png)
+*FlowNote demo vault — Graph view ve overview README, Obsidian'da.*
+
+![Demo vault — meeting raw + graph](docs/screenshots/obsidian-graph-and-meeting.png)
+*Aynı vault — auth provider eval meeting (raw) ve graph view yan yana.*
+
+---
+
 ## Hızlı başlangıç
 
 ### Seçenek A — Claude Code skill ile (önerilen)
 
-Skill'leri `~/.claude/skills/` altına bir kereliğine kur:
-
 ```bash
-git clone https://github.com/Hootbu/llm-wiki-mind.git ~/Desktop/llm-wiki-mind
-mkdir -p ~/.claude/skills
-cp -R ~/Desktop/llm-wiki-mind/skills/vault-init ~/.claude/skills/
-cp -R ~/Desktop/llm-wiki-mind/skills/vault-sync ~/.claude/skills/
-cp -R ~/Desktop/llm-wiki-mind/skills/vault-lint ~/.claude/skills/
+bash <(curl -fsSL https://raw.githubusercontent.com/Hootbu/llm-wiki-mind/main/scripts/install-skills.sh)
 ```
+
+Skill'leri `~/.claude/skills/` altına bir kerede kurar; mevcut skill varsa yedekler.
 
 Sonra herhangi bir Claude Code oturumunda:
 
@@ -62,6 +66,12 @@ Offline / yerel template için:
 ```bash
 ./init-vault.sh <proj> <vault> --local ~/Desktop/llm-wiki-mind
 ```
+
+**Preset ile alanı baştan belirle** — CLAUDE.md §0/§1, `index.md` kategorileri ve `raw/` alt klasörleri otomatik dolar:
+```bash
+./init-vault.sh <proj> <vault> --preset software
+```
+Mevcut preset'ler: `software`, `research`, `book-reading`, `journal`. Yeni eklemek için `presets/` klasörüne bak.
 
 ---
 
@@ -119,6 +129,29 @@ Wiki bakımının zor kısmı düşünmek değil — **bookkeeping**'tir. Çapra
 
 ---
 
+## Örnekler
+
+Pattern'in somut bir vault'ta nasıl göründüğünü görmek için:
+
+- [`examples/saas-project-demo/`](examples/saas-project-demo/) — hayali bir SaaS projesi (FlowNote). Üç raw input (PRD, auth provider eval meeting, prod incident report) ve bunlardan üreyen tam wiki: 4 entity, 1 concept, 2 decision, 1 synthesis. Hikaye: bir auth migration kararı + 1 hafta sonra rate limit incident → kararla incident'i birleştiren filed-back postmortem. Yazılımcılar için pattern'in en somut görünümü.
+
+Önce `examples/saas-project-demo/raw/decisions/auth-provider-eval.md` → sonra `raw/incidents/2026-03-rate-limit.md` → en sonunda `syntheses/auth-migration-postmortem.md` okumayı dene; pattern'in **kararla bir hafta sonraki olayı bağlama** yeteneğini görürsün.
+
+---
+
+## Tipik bir gün
+
+Vault'la çalışmak günlük bir akışa oturur. Örnek bir hafta:
+
+- **Pazartesi** — Yeni bir toplantı transkriptini `raw/meetings/` altına atarsın. `/vault-sync` dersin. Claude transcript'i okur, `sources/` altına özet yazar, geçen entity/concept sayfalarını günceller, çelişki varsa işaretler.
+- **Çarşamba** — Projede birkaç commit attın. `/vault-sync` dersin. Skill `log.md`'den son ingest commit'ini otomatik tespit eder, aradaki yeni commit'leri ingest eder; etkilenen entity sayfaları güncellenir, gerekirse `decisions/` altına yeni karar dosyası açılır.
+- **Cuma** — Bir soru sorarsın ("auth migration'dan sonra rate limit incident'i ne öğretti?"). Claude `index.md`'yi tarar, ilgili decision + incident sayfalarını okur, sentez verir; değerli olanı `syntheses/` altına filed-back eder.
+- **Ay sonu** — `/vault-lint` ile sağlık kontrolü çalıştırırsın: çelişkiler, stale claim'ler, orphan sayfalar, broken link'ler. Rapor + onayınla otomatik düzeltmeler.
+
+Sen kaynak ve soru üretirsin; bookkeeping arka planda kendini toplar.
+
+---
+
 ## Kullanım alanları
 
 - **Yazılım projesi**: mimari kararlar, sprint planları, toplantılar, PR tartışmaları, incident'ler, harici servis davranışları, maliyet/performans analizleri.
@@ -148,6 +181,8 @@ llm-wiki-mind/
 │   ├── decisions/
 │   ├── syntheses/
 │   └── archive/
+├── examples/                    # somut, doldurulmuş örnek vault'lar
+│   └── saas-project-demo/       # hayali SaaS projesi — 17 dosya, tam hikaye
 ├── scripts/
 │   └── init-vault.sh            # bash kurucu
 └── skills/
@@ -165,6 +200,25 @@ Bu proje [selmakcby/knowledge-pipeline](https://github.com/selmakcby/knowledge-p
 Pattern ruhen Vannevar Bush'un 1945'teki **Memex** vizyonuna yakındır — kişisel, aktif olarak küratörlenmiş bilgi deposu, belgeler arasında çağrışımsal izler. Bush'un çözemediği tek şey kimin bakımı yapacağıydı. LLM o kısmı halleder.
 
 Kurulum ve dokümantasyon yardımı: Claude (Anthropic).
+
+---
+
+## SSS
+
+**Notion / Logseq / Tana yerine niye bu?**
+Onlar editör — sayfayı sen yazarsın, bağlantıyı sen kurarsın. Bu pattern LLM-bookkeeping'i merkeze koyuyor: markdown'lar ham ve taşınabilir, çapraz-referans/özet/çelişki bakımını Claude yapıyor. Tool değil, bir akış.
+
+**Claude Code şart mı? GPT / Cursor / başka model çalışır mı?**
+Skill'ler (`/vault-init`, `/vault-sync`, `/vault-lint`) Claude Code'a özel — slash command, AskUserQuestion gibi mekanizmaları kullanıyor. Ama pattern'in kendisi (CLAUDE.md şeması, raw/sources/entities yapısı, üç operasyon) model-agnostik; başka asistanla manuel olarak aynı akışı kurabilirsin.
+
+**Maliyet ne kadar?**
+Küçük vault'larda günde birkaç ingest = düşük token harcaması. Büyük vault'larda Claude'un prompt caching'i devreye giriyor, ingest başına maliyet düşüyor. Anthropic API doğrudan kullanımıyla tipik kişisel kullanım $5-20/ay aralığında; Claude Code aboneliği üzerinden kullanılırsa abonelik kapsamında.
+
+**Veri nerede tutulur, privacy?**
+Vault tamamen yerel — markdown dosyaları diskinde, başka yere gitmiyor. Sadece konuşma sırasında Claude'a verdiğin / okuttuğun ilgili sayfalar Anthropic'e gidiyor. Vault'un tamamı sürekli upload edilmiyor.
+
+**Vault'umu git'e push edebilir miyim?**
+Evet. `init-vault.sh` vault'u zaten `git init`'liyor, istersen GitHub'a push edebilirsin. Public bir repo'ya push'tan önce `raw/` altına koyduğun gizli içeriklere (API key, kişisel bilgi, müşteri görüşmesi) dikkat et — bunları `.gitignore`'a manuel eklemen gerekir.
 
 ---
 

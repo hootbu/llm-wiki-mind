@@ -1,20 +1,24 @@
 #!/usr/bin/env bash
 # init-vault.sh — llm-wiki-mind vault kurucu
 # Kullanım:
-#   ./init-vault.sh <PROJECT_PATH> <VAULT_PATH> [--local /path/to/llm-wiki-mind] [--yes]
+#   ./init-vault.sh <PROJECT_PATH> <VAULT_PATH> [--local /path/to/llm-wiki-mind] [--preset NAME] [--yes]
 #
 # <PROJECT_PATH>  — referans alınacak kod/proje dizini (opsiyonel: "-" geçilirse yok sayılır)
 # <VAULT_PATH>    — kurulacak vault'un hedef dizini (yoksa oluşur, varsa reddedilir)
 # --local PATH    — template'i GitHub yerine yerel llm-wiki-mind kopyasından kullan
+# --preset NAME   — alan tipine göre §0/§1/index/raw'i otomatik doldur (software, research, book-reading, journal)
 # --yes           — etkileşimli soruları atla (default: soru sor)
+#
+# Fork ediyorsan: LLM_WIKI_REPO env değişkeni ile kendi forkunu varsayılan yapabilirsin.
 
 set -euo pipefail
 
-REPO_URL="https://github.com/Hootbu/llm-wiki-mind.git"
+REPO_URL="${LLM_WIKI_REPO:-https://github.com/Hootbu/llm-wiki-mind.git}"
 LOCAL_TEMPLATE=""
 ASSUME_YES=0
 PROJECT_PATH=""
 VAULT_PATH=""
+PRESET=""
 
 die() { echo "error: $*" >&2; exit 1; }
 info() { echo "==> $*"; }
@@ -26,14 +30,105 @@ ask() {
   echo "${ans:-$default}"
 }
 
+# Marker'lar arası bloğu çıkar (başlık satırları hariç).
+# $1: dosya, $2: başlangıç marker, $3: bitiş marker
+extract_block() {
+  awk -v b="$2" -v e="$3" '
+    $0==b {flag=1; next}
+    $0==e {flag=0; next}
+    flag==1 {print}
+  ' "$1"
+}
+
+# Marker'dan sonraki tüm satırları al (marker hariç).
+extract_after() {
+  awk -v m="$2" '
+    $0==m {flag=1; next}
+    flag==1 {print}
+  ' "$1"
+}
+
+# CLAUDE.md'de "## N. Başlık" ile başlayan bölümün gövdesini (sonraki "## " başlığına kadar) yeni içerikle değiştirir.
+# $1: dosya, $2: bölüm başlığı (örn "## 0. Hızlı kimlik"), $3: yeni içerik dosyası
+replace_section() {
+  local file="$1" header="$2" content_file="$3" tmp
+  tmp="$(mktemp)"
+  awk -v h="$header" -v cf="$content_file" '
+    BEGIN { state=0 }
+    state==0 && $0==h {
+      print
+      while ((getline line < cf) > 0) print line
+      close(cf)
+      state=1
+      next
+    }
+    state==1 {
+      if (/^## /) { state=2; print; next }
+      next
+    }
+    { print }
+  ' "$file" > "$tmp" && mv "$tmp" "$file"
+}
+
+apply_preset() {
+  local preset_file="$1"
+  local sec0 sec1 idx raw_subdirs
+  sec0="$(mktemp)"
+  sec1="$(mktemp)"
+  idx="$(mktemp)"
+  raw_subdirs="$(mktemp)"
+
+  # Marker'lar arası içerikleri çıkar (etrafına boş satır ekleyerek estetik düzgün dursun).
+  {
+    echo ""
+    extract_block "$preset_file" "## CLAUDE_SECTION_0" "## CLAUDE_SECTION_1"
+  } > "$sec0"
+  {
+    echo ""
+    extract_block "$preset_file" "## CLAUDE_SECTION_1" "## INDEX_CATEGORIES"
+  } > "$sec1"
+  extract_block "$preset_file" "## INDEX_CATEGORIES" "## RAW_SUBDIRS" > "$idx"
+  extract_after "$preset_file" "## RAW_SUBDIRS" > "$raw_subdirs"
+
+  # Preset §0 içeriğindeki <VAULT_PATH> / <PROJECT_PATH> placeholder'larını da değiştir.
+  sed "${SED_INPLACE[@]}" \
+    -e "s|<VAULT_PATH>|$VAULT_ABS|g" \
+    -e "s|<PROJECT_PATH>|$PROJECT_DISPLAY|g" \
+    "$sec0"
+
+  # §0 ve §1'i CLAUDE.md'de değiştir.
+  replace_section "$CLAUDE_FILE" "## 0. Hızlı kimlik" "$sec0"
+  replace_section "$CLAUDE_FILE" "## 1. Amaç" "$sec1"
+
+  # index.md sonuna preset kategorilerini ekle.
+  {
+    echo ""
+    echo "---"
+    echo ""
+    cat "$idx"
+  } >> "$VAULT_PATH/index.md"
+
+  # raw/ alt klasörlerini oluştur.
+  while IFS= read -r sub; do
+    [ -z "$sub" ] && continue
+    sub="${sub%/}"
+    mkdir -p "$VAULT_PATH/raw/$sub"
+    : > "$VAULT_PATH/raw/$sub/.gitkeep"
+  done < "$raw_subdirs"
+
+  rm -f "$sec0" "$sec1" "$idx" "$raw_subdirs"
+  info "Preset uygulandı: $(basename "$preset_file" .md)"
+}
+
 # --- argüman ayrıştır ---
 POSITIONAL=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --local) LOCAL_TEMPLATE="$2"; shift 2 ;;
+    --preset) PRESET="$2"; shift 2 ;;
     --yes|-y) ASSUME_YES=1; shift ;;
     -h|--help)
-      sed -n '2,10p' "$0"; exit 0 ;;
+      sed -n '2,12p' "$0"; exit 0 ;;
     *) POSITIONAL+=("$1"); shift ;;
   esac
 done
@@ -94,6 +189,13 @@ sed "${SED_INPLACE[@]}" \
   -e "s|<PROJECT_PATH>|$PROJECT_DISPLAY|g" \
   "$CLAUDE_FILE"
 
+# --- preset uygula (varsa) ---
+if [ -n "$PRESET" ]; then
+  PRESET_FILE="$SRC/../presets/$PRESET.md"
+  [ -f "$PRESET_FILE" ] || die "Preset bulunamadı: $PRESET (mevcut: software, research, book-reading, journal)"
+  apply_preset "$PRESET_FILE"
+fi
+
 # --- ilk log girişi ---
 {
   echo ""
@@ -114,16 +216,21 @@ if [ "$PROJECT_PATH" != "-" ]; then
   MARKER_BEGIN="<!-- llm-wiki-mind:begin -->"
   MARKER_END="<!-- llm-wiki-mind:end -->"
 
-  POINTER_BLOCK=$(cat <<EOF
-$MARKER_BEGIN
+  POINTER_TMP="$(mktemp)"
+  cat > "$POINTER_TMP" <<'EOF'
+__MB__
 ## Vault (llm-wiki-mind)
 
-Bu projenin bilgi arşivi: \`$VAULT_ABS\`
+Bu projenin bilgi arşivi: `__VAULT__`
 
-Claude'a talimat: bu projede bir oturum başladığında veya \`/clear\` / compact sonrası yukarıdaki vault'un \`CLAUDE.md\` dosyasını oku ve \`index.md\` + \`log.md\` dosyalarını tara. Kullanıcı "ingest", "vault'a sor", "lint" gibi ifadeler kullanırsa vault şemasını izle. Vault'un \`raw/\` dizini immutable — asla yazma.
-$MARKER_END
+Claude'a talimat: bu projede bir oturum başladığında veya `/clear` / compact sonrası yukarıdaki vault'un `CLAUDE.md` dosyasını oku ve `index.md` + `log.md` dosyalarını tara. Kullanıcı "ingest", "vault'a sor", "lint" gibi ifadeler kullanırsa vault şemasını izle. Vault'un `raw/` dizini immutable — asla yazma.
+__ME__
 EOF
-)
+  POINTER_BLOCK="$(cat "$POINTER_TMP")"
+  rm -f "$POINTER_TMP"
+  POINTER_BLOCK="${POINTER_BLOCK//__MB__/$MARKER_BEGIN}"
+  POINTER_BLOCK="${POINTER_BLOCK//__VAULT__/$VAULT_ABS}"
+  POINTER_BLOCK="${POINTER_BLOCK//__ME__/$MARKER_END}"
 
   WRITE_POINTER=0
   IGNORE_POINTER=0
@@ -140,9 +247,9 @@ EOF
   else
     echo ""
     echo "Proje yolu: $PROJECT_PATH"
-    echo "Seçenekler:"
-    echo "  1) Proje kök CLAUDE.md'ye vault işaretçisi ekle (commit'lenebilir, takım görür)"
-    echo "  2) Ekle ama .gitignore'a da koy (sadece senin makinende kalır)"
+    echo "Secenekler:"
+    echo "  1) Proje kok CLAUDE.md icine vault isaretcisi ekle (commitlenebilir, takim gorur)"
+    echo "  2) Ekle ama .gitignore icine de koy (sadece senin makinende kalir)"
     echo "  3) Ekleme (atla, sadece vault kuruldu)"
     case "$(ask 'Tercih [1/2/3]:' '1')" in
       1) WRITE_POINTER=1 ;;
