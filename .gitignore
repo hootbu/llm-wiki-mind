@@ -11,3 +11,6 @@ Thumbs.db
 *.swo
 .idea/
 .vscode/
+
+# Local working notes (not pushed)
+TODO.md

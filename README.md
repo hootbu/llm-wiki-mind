@@ -1,5 +1,9 @@
 # llm-wiki-mind
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Built for Claude Code](https://img.shields.io/badge/Built%20for-Claude%20Code-D97757)](https://claude.com/claude-code)
+[![Obsidian compatible](https://img.shields.io/badge/Obsidian-compatible-7c3aed)](https://obsidian.md)
+
 > LLM ajanının sürekli inşa ettiği kalıcı, birikimli bir Obsidian bilgi arşivi (persistent wiki) için **starter template + init script + Claude Code skill'leri**.
 
 Sen kaynak bulursun, Claude bookkeeping'i yapar: özetler, çapraz-referansları kurar, çelişkileri işaretler, sentez yazar. Wiki zamanla büyür ve her yeni soru daha zenginleşmiş bir bilgi katmanıyla karşılanır.
