@@ -4,6 +4,238 @@
 [![Built for Claude Code](https://img.shields.io/badge/Built%20for-Claude%20Code-D97757)](https://claude.com/claude-code)
 [![Obsidian compatible](https://img.shields.io/badge/Obsidian-compatible-7c3aed)](https://obsidian.md)
 
+**English** · [Türkçe](#türkçe)
+
+> A **starter template + init script + Claude Code skills** for a persistent, cumulative Obsidian knowledge vault that an LLM agent continuously builds.
+
+You find the sources; Claude does the bookkeeping: summaries, cross-references, contradiction flagging, synthesis. The wiki grows over time, and every new question is met with a richer layer of knowledge.
+
+**Role split**
+
+| You | Claude |
+|---|---|
+| Find sources (drop in `raw/`) | Reads, summarizes, files |
+| Decide what to ask | Maintains cross-references |
+| Drive the analysis | Flags contradictions |
+| Read results, think critically | Does the bookkeeping |
+| Evolve the schema | Follows the schema |
+
+**Obsidian = IDE, LLM = programmer, wiki = codebase.**
+
+---
+
+![Demo vault overview](docs/screenshots/obsidian-graph-and-overview.png)
+*FlowNote demo vault — Graph view and overview README, in Obsidian.*
+
+![Demo vault — meeting raw + graph](docs/screenshots/obsidian-graph-and-meeting.png)
+*Same vault — auth provider eval meeting (raw) and graph view side by side.*
+
+---
+
+## Quick start
+
+### Option A — via Claude Code skill (recommended)
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/Hootbu/llm-wiki-mind/main/scripts/install-skills.sh)
+```
+
+Installs the skills under `~/.claude/skills/` in one shot; backs up any existing skill with the same name.
+
+Then in any Claude Code session:
+
+```
+/vault-init
+```
+
+Claude will ask for the project path and vault path, then handle the rest.
+
+### Option B — script directly
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Hootbu/llm-wiki-mind/main/scripts/init-vault.sh \
+  -o /tmp/init-vault.sh && chmod +x /tmp/init-vault.sh
+/tmp/init-vault.sh ~/Projects/MyApp ~/Desktop/MyApp-Mind/MyApp
+```
+
+Two arguments:
+1. **PROJECT_PATH** — reference project directory (use `-` if none)
+2. **VAULT_PATH** — where the vault will live
+
+The script asks questions as it goes: should the project root `CLAUDE.md` pointer be committed, gitignored, or skipped?
+
+Offline / local template:
+```bash
+./init-vault.sh <proj> <vault> --local ~/Desktop/llm-wiki-mind
+```
+
+**Pick the domain up front with a preset** — CLAUDE.md §0/§1, `index.md` categories, and `raw/` subfolders are auto-populated:
+```bash
+./init-vault.sh <proj> <vault> --preset software
+```
+Available presets: `software`, `research`, `book-reading`, `journal`. To add new ones, see the `presets/` folder.
+
+---
+
+## What do the skills do?
+
+### `/vault-init` — set up a new vault
+
+Creates a vault for a new project (or a pure knowledge area — book reading, research, journal). Asks for the project path and vault path, pulls the template from GitHub, places it, updates paths in `CLAUDE.md`, and adds a **vault pointer** to the project's root `CLAUDE.md` (so Claude recognizes the vault in every session for that project).
+
+### `/vault-sync` — digest changes into the vault
+
+Made some commits? This skill reads `git log` + `git diff`, drops a commit summary under `raw/pr-discussions/`, and runs the vault's ingest workflow:
+
+- Updates affected entity/feature/service pages.
+- Creates a new entity page if a new feature was added.
+- Important decisions get filed as `decisions/NNNN-*.md`.
+- If a contradiction surfaces it isn't deleted — a `⚠ Contradiction` note is left.
+- `index.md` and `log.md` stay synchronized.
+
+Range is flexible: last commit, a specific hash, a date range, or an entire PR (`main..HEAD`).
+
+### `/vault-lint` — health check
+
+Wikis decay as they grow. This skill scans for:
+
+- **Contradictions** — `⚠ Contradiction` notes, with resolution suggestions.
+- **Stale claims** — `active` pages not updated in 90+ days; re-ingest suggestion.
+- **Orphan pages** — pages with no incoming links; add a link or move to archive.
+- **Broken links** — `[[linked]]` targets without files; create a stub or remove.
+- **One-way references** — A→B exists but B→A doesn't; add a `## Related` section.
+- **Data gaps** — placeholders; suggest a web search / raw addition.
+- **New question suggestions** — 3–5 research-worthy questions inferred from patterns in the wiki.
+
+Output: a single markdown report + auto-fixable changes applied with user approval.
+
+---
+
+## How does the vault work? (short pattern summary)
+
+### Three layers
+
+1. **`raw/`** — raw sources. **Immutable** (only you add; the agent never writes here).
+2. **Wiki** (vault root) — `sources/`, `entities/`, `concepts/`, `decisions/`, `syntheses/`. Fully managed by the LLM.
+3. **`CLAUDE.md`** — schema / constitution. First file read every session; defines folder structure, naming, workflows, prohibitions. You and the agent evolve it over time.
+
+### Three operations
+
+- **INGEST** — drop a new source under `raw/`, say "ingest it." The agent: reads → writes a source summary → updates entity/concept pages → flags contradictions if any → updates `index.md` + `log.md`.
+- **QUERY** — ask a question. The agent: scans `index.md` → opens relevant pages → produces a synthesis → **files back** valuable answers under `syntheses/` as atomic pages.
+- **LINT** — periodic health check (above).
+
+### Why does it work?
+
+The hard part of wiki maintenance isn't thinking — it's **bookkeeping**. Cross-references, stale summaries, contradiction-catching, consistency across dozens of pages. The LLM doesn't get bored, doesn't forget, can touch 15 files in one pass. **The wiki stays maintained because maintenance cost is nearly zero.**
+
+---
+
+## Examples
+
+To see what the pattern looks like in a concrete vault:
+
+- [`examples/saas-project-demo/`](examples/saas-project-demo/) — a fictional SaaS project (FlowNote). Three raw inputs (PRD, auth provider eval meeting, prod incident report) and the full wiki that emerges from them: 4 entities, 1 concept, 2 decisions, 1 synthesis. Story: an auth migration decision + a rate limit incident one week later → a filed-back postmortem connecting the two. The most concrete view of the pattern for software engineers.
+
+Try reading `examples/saas-project-demo/raw/decisions/auth-provider-eval.md` first → then `raw/incidents/2026-03-rate-limit.md` → finally `syntheses/auth-migration-postmortem.md`; you'll see the pattern's ability to **connect a decision to an event a week later.**
+
+---
+
+## A typical day
+
+Working with a vault settles into a daily rhythm. Example week:
+
+- **Monday** — You drop a new meeting transcript under `raw/meetings/`. You say `/vault-sync`. Claude reads the transcript, writes a summary under `sources/`, updates the relevant entity/concept pages, flags any contradictions.
+- **Wednesday** — You made a few commits in the project. You say `/vault-sync`. The skill auto-detects the last ingested commit from `log.md` and ingests new commits between; affected entity pages are updated, a new decision file is opened under `decisions/` if needed.
+- **Friday** — You ask a question ("what did the rate limit incident teach us after the auth migration?"). Claude scans `index.md`, reads the relevant decision + incident pages, returns a synthesis; valuable ones get filed back under `syntheses/`.
+- **End of month** — You run a health check with `/vault-lint`: contradictions, stale claims, orphan pages, broken links. Report + auto-fixes with your approval.
+
+You produce sources and questions; the bookkeeping takes care of itself in the background.
+
+---
+
+## Use cases
+
+- **Software projects**: architectural decisions, sprint plans, meetings, PR discussions, incidents, external service behavior, cost/performance analyses.
+- **Research**: papers, theories, methodology notes, experiment logs, an evolving thesis.
+- **Book reading**: file chapter by chapter — characters, themes, connections. A personal Gateway.
+- **Personal development / journal**: goals, health, reading notes, a structured picture of yourself.
+- **Team knowledge**: Slack threads, meeting transcripts, customer interviews. The bookkeeping no one wants to do.
+- **Competitive analysis, due diligence, course notes, hobby research** — anything you want to accumulate knowledge about over time.
+
+---
+
+## Repo structure
+
+```
+llm-wiki-mind/
+├── README.md                    # this file
+├── LICENSE                      # MIT
+├── template/                    # /vault-init copies this
+│   ├── CLAUDE.md                # schema (constitution) — <VAULT_PATH>/<PROJECT_PATH> placeholders
+│   ├── README.md                # vault's own README
+│   ├── index.md                 # category skeleton
+│   ├── log.md                   # temporal-log skeleton
+│   ├── raw/                     # (empty, .gitkeep)
+│   ├── sources/
+│   ├── entities/
+│   ├── concepts/
+│   ├── decisions/
+│   ├── syntheses/
+│   └── archive/
+├── examples/                    # concrete, populated example vaults
+│   └── saas-project-demo/       # fictional SaaS project — 17 files, full story
+├── scripts/
+│   └── init-vault.sh            # bash installer
+└── skills/
+    ├── vault-init/SKILL.md
+    ├── vault-sync/SKILL.md
+    └── vault-lint/SKILL.md
+```
+
+---
+
+## Acknowledgments
+
+This project draws inspiration from the `llm-wiki` SKILL.md pattern by **Selma Akçebay** in [selmakcby/knowledge-pipeline](https://github.com/selmakcby/knowledge-pipeline). The pattern itself is originally hers; this repo packages it as a Turkish-language, Obsidian-focused "starter + skill" bundle.
+
+In spirit, the pattern is close to Vannevar Bush's 1945 **Memex** vision — a personal, actively curated knowledge store with associative trails between documents. The one thing Bush couldn't solve was who would do the maintenance. The LLM handles that part.
+
+Setup and documentation help: Claude (Anthropic).
+
+---
+
+## FAQ
+
+**Why this instead of Notion / Logseq / Tana?**
+Those are editors — you write the page, you make the link. This pattern centers LLM-bookkeeping: markdown stays raw and portable while Claude handles cross-referencing/summarizing/contradiction maintenance. It's a flow, not a tool.
+
+**Is Claude Code required? Will GPT / Cursor / another model work?**
+The skills (`/vault-init`, `/vault-sync`, `/vault-lint`) are Claude Code-specific — they use mechanisms like slash commands and AskUserQuestion. But the pattern itself (CLAUDE.md schema, raw/sources/entities structure, three operations) is model-agnostic; you can set up the same flow manually with another assistant.
+
+**How much does it cost?**
+For small vaults, a few ingests per day = low token spend. For large vaults, Claude's prompt caching kicks in and reduces per-ingest cost. With direct Anthropic API usage, typical personal use sits in the $5–20/month range; via a Claude Code subscription, it's covered by the subscription.
+
+**Where is the data kept? Privacy?**
+The vault is fully local — markdown files on your disk, nothing else. Only the relevant pages you give to / let Claude read during a conversation go to Anthropic. The full vault isn't continuously uploaded.
+
+**Can I push my vault to git?**
+Yes. `init-vault.sh` already runs `git init` on the vault, and you can push it to GitHub if you want. Before pushing to a public repo, watch out for sensitive content under `raw/` (API keys, personal info, customer interviews) — you'd need to add those to `.gitignore` manually.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE) for details.
+
+---
+---
+---
+
+# Türkçe
+
+[English](#llm-wiki-mind) · **Türkçe**
+
 > LLM ajanının sürekli inşa ettiği kalıcı, birikimli bir Obsidian bilgi arşivi (persistent wiki) için **starter template + init script + Claude Code skill'leri**.
 
 Sen kaynak bulursun, Claude bookkeeping'i yapar: özetler, çapraz-referansları kurar, çelişkileri işaretler, sentez yazar. Wiki zamanla büyür ve her yeni soru daha zenginleşmiş bir bilgi katmanıyla karşılanır.
